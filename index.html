@@ -152,6 +152,7 @@ body{display:flex;align-items:center;justify-content:center;overflow:hidden}
 <div class="stage dark" id="stage"></div>
 <script>
 const stage=document.getElementById("stage");
+const SHARE_API_URL="https://spotifywrapped-share-api.saxonmapper-collabs.workers.dev"; // Set this to the deployed Worker URL, e.g. https://spotifywrapped-api.example.workers.dev
 const GP="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z";
 const LOGO=`<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="12" fill="#000"/><path fill="#1ed760" d="${GP}"/></svg>`;
 const LOGOW=`<svg viewBox="0 0 24 24"><path fill="#fff" d="${GP}"/></svg>`;
@@ -172,7 +173,7 @@ try{
   var pages=await Promise.all(urls.map(async function(url){try{var r=await fetch(url,{credentials:"same-origin"});if(!r.ok)return null;var doc=new DOMParser().parseFromString(await r.text(),"text/html"),state=doc.getElementById("state");return state?JSON.parse(state.textContent):null}catch(x){return null}}));
   var stats=Object.assign({},profile.stats||{}),rawPages={},keys={artists:[["top_artists","artists"],"top_artists"],songs:[["top_tracks","tracks","songs","top_songs"],"top_tracks"],albums:[["top_albums","albums"],"top_albums"],genres:[["top_genres","genres"],"top_genres"],labels:[["top_labels","labels"],"top_labels"]};
   pages.forEach(function(page,i){if(!page)return;rawPages[kinds[i]]=page;var rule=keys[kinds[i]];if(!rule)return;var sources=[page.stats,page,page.data,page.data&&page.data.stats];for(var j=0;j<sources.length;j++){var source=sources[j];if(!source)continue;for(var k=0;k<rule[0].length;k++){var value=source[rule[0][k]];if(Array.isArray(value)&&(!Array.isArray(stats[rule[1]])||value.length>stats[rule[1]].length))stats[rule[1]]=value}}});
-  var user=profile.user||{},payload=JSON.stringify({u:{n:user.display_name||user.name||"",i:user.image_url_large||""},tf:frame,all_time:true,selection:{url:location.origin+base+"?"+currentParams.toString(),search:"?time_frame=long"},s:stats,raw:{profile:profile,pages:rawPages}}),target=window.opener&&!window.opener.closed?window.opener:null;
+  var user=profile.user||{},payload=JSON.stringify({u:{n:user.display_name||user.name||"",i:user.image_url_large||"",country:user.country||""},tf:frame,all_time:true,selection:{url:location.origin+base+"?"+currentParams.toString(),search:"?time_frame=long"},s:stats,raw:{profile:profile,pages:rawPages}}),target=window.opener&&!window.opener.closed?window.opener:null;
   if(!target){var named=null,blank=false;try{named=window.open("","volt-wrapped-story")}catch(x){}if(named){try{blank=named.location.href==="about:blank"}catch(x){}if(blank){try{named.close()}catch(x){}}else target=named}}
   if(target){target.postMessage({wrapped:1,p:payload},"*");target.focus();alert("Your Volt.fm stats are in Wrapped!");return}
   function fallback(){var box=document.createElement("textarea");box.value=payload;box.style.cssText="position:fixed;left:-9999px;top:0";document.body.appendChild(box);box.select();var ok=false;try{ok=document.execCommand("copy")}catch(x){}box.remove();if(ok){alert("All stats copied. Return to Wrapped and click Paste copied stats.");return}var panel=document.createElement("div"),area=document.createElement("textarea");panel.style.cssText="position:fixed;inset:0;z-index:2147483647;background:#101010;color:white;padding:5vh 5vw;font:16px Arial";area.value=payload;area.style.cssText="display:block;width:100%;height:72vh;margin:12px 0;background:#222;color:white";var note=document.createElement("p");note.textContent="Clipboard was blocked. Copy this, return to Wrapped, and paste it.";panel.appendChild(note);panel.appendChild(area);document.body.appendChild(panel);area.focus();area.select()}
@@ -245,7 +246,7 @@ function parse(raw){
   if(!s.top_genres)s.top_genres=s.genres||[];
   if(!s||!s.top_tracks||s.top_tracks.length<5)throw new Error("no top songs found. Is your profile public?");
   const u=d.u||{n:root.user&&(root.user.display_name||root.user.name)},timeFrame=d.tf||d.time_frame||root.time_frame;
-  return{name:u.n,s,raw:root,time_frame:timeFrame,all_time:true,year_summary:d.year_summary||null};
+  return{name:u.n,country:(d.country||u.country||(root.user&&root.user.country)||""),s,raw:root,time_frame:timeFrame,all_time:true,year_summary:d.year_summary||null};
 }
 const YEAR=new Date().getFullYear();
 function parseSpotifyHistory(entries){
@@ -765,24 +766,39 @@ async function encodeShareData(value){
 }
 async function shareWrapped(){
   if(!D)return;
-  const tracks=D.s.top_tracks||[],top=tracks[0]||{},artist=(D.s.top_artists||[])[0];
-  const total=D.year_summary?D.year_summary.total_minutes:Math.round(tracks.reduce((a,x)=>a+(Number(x.duration_ms)||0),0)/60000);
-  const caption=`My Spotify Wrapped: ${top.name||"a year in music"}${top.artists&&top.artists.length?" by "+top.artists.map(a=>a.name).join(", "):""}. ${artist&&artist.name?"Top artist: "+artist.name+". ":""}${Number(total).toLocaleString()} minutes of music.`;
-  const shared={u:{n:D.name||""},s:D.s,year_summary:D.year_summary||null,tf:D.time_frame||"long",all_time:true};
-  const token=await encodeShareData(shared);
-  const inSharePage=/\/share(?:\/(?:index\.html?)?)?$/.test(location.pathname);
-  const target=new URL(inSharePage?"./":"share/",location.href);
-  target.hash="wrapped="+token;
-  const url=target.href,note=document.getElementById("shareNote"),box=document.getElementById("shareUrlBox");
-  if(box){box.value=url;box.style.display="block"}
+  const note=document.getElementById("shareNote"),box=document.getElementById("shareUrlBox");
+  if(!SHARE_API_URL){if(note)note.textContent="Short links need the share storage Worker. Add its URL in SHARE_API_URL after setup.";return}
+  const slimArtist=a=>({name:String(a&&a.name||""),image_url_large:a&&(a.image_url_large||a.image_url_small)||""});
+  const payload={
+    u:{n:D.name||"",country:D.country||""},
+    s:{
+      top_tracks:(D.s.top_tracks||[]).slice(0,100).map(t=>{const album=t.album||{};return{
+        name:String(t.name||""),spotify_id:String(t.spotify_id||t.id||""),duration_ms:Number(t.duration_ms)||0,
+        release_date:String(t.release_date||""),image_url_large:t.image_url_large||t.image_url_small||"",
+        artists:(t.artists||[]).map(a=>({name:String(a&&a.name||"")})),album:{name:String(album.name||"")}
+      }}),
+      top_artists:(D.s.top_artists||[]).slice(0,100).map(slimArtist),
+      top_albums:(D.s.top_albums||[]).slice(0,100).map(a=>({name:String(a.name||""),image_url_large:a.image_url_large||a.image_url_small||"",artists:(a.artists||[]).map(x=>({name:String(x&&x.name||"")}))})),
+      top_genres:(D.s.top_genres||[]).slice(0,100).map(g=>({name:String(g.name||"")}))
+    },year_summary:D.year_summary||null,tf:D.time_frame||"long",all_time:true
+  };
   try{
-    if(navigator.share){await navigator.share({title:"My Spotify Wrapped",text:caption,url});if(note)note.textContent="Your Wrapped link is ready to share ✨";return}
+    if(note)note.textContent="Saving your Wrapped…";
+    const response=await fetch(SHARE_API_URL.replace(/\/$/,"")+"/api/shares",{
+      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:D.name||"Wrapped",country:D.country||"",payload})
+    });
+    const result=await response.json();if(!response.ok)throw new Error(result.error||"Could not save your Wrapped.");
+    const target=new URL(/\/share(?:\/(?:index\.html?)?)?$/.test(location.pathname)?"./":"share/",location.href);
+    target.search="?u="+encodeURIComponent(result.slug);target.hash="";
+    const url=target.href;if(box){box.value=url;box.style.display="block"}
+    const caption=`My Spotify Wrapped: ${D.s.top_tracks[0]?.name||"a year in music"}${D.s.top_artists?.[0]?.name?" · Top artist: "+D.s.top_artists[0].name:""}`;
+    if(navigator.share){await navigator.share({title:"My Spotify Wrapped",text:caption,url});if(note)note.textContent="Your Wrapped is saved. Here’s your share page ✨";return}
     if(!navigator.clipboard||!navigator.clipboard.writeText)throw new Error("Clipboard unavailable");
-    await navigator.clipboard.writeText(url);if(note)note.textContent="Wrapped link copied! Anyone with it can open your story ✨";
+    await navigator.clipboard.writeText(url);if(note)note.textContent="Your Wrapped is saved and the short link is copied ✨";
   }catch(e){
     if(e&&e.name==="AbortError")return;
-    try{if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(url);if(note)note.textContent="Wrapped link copied! Anyone with it can open your story ✨"}else{if(note)note.textContent="Copy this link to share your Wrapped:";box&&box.select()}}
-    catch(x){if(note)note.textContent="Copy this link to share your Wrapped:";if(box)box.select()}
+    if(note)note.textContent=(e&&e.message)||"Couldn’t save your Wrapped. Check that the share service is online.";
+    if(box&&box.value)box.select();
   }
 }
 async function decodeShareData(token){
@@ -887,6 +903,15 @@ window.addEventListener("focus",async()=>{
   try{const t=await navigator.clipboard.readText();if(t&&t.indexOf('"top_tracks"')>-1)load(t)}catch(e){}
 });
 async function boot(){
+  const slug=new URLSearchParams(location.search).get("u");
+  if(slug){
+    try{
+      if(!SHARE_API_URL)throw new Error("This share page needs its storage service configured.");
+      const response=await fetch(SHARE_API_URL.replace(/\/$/,"")+"/api/shares/"+encodeURIComponent(slug));
+      const result=await response.json();if(!response.ok)throw new Error(result.error||"This Wrapped link could not be found.");
+      D=parse(JSON.stringify(result.payload));S=build();story();return;
+    }catch(e){home((e&&e.message)||"This Wrapped link could not be opened.");return}
+  }
   const match=location.hash.match(/(?:^#|&)wrapped=([^&]+)/);
   if(match){
     try{D=parse(await decodeShareData(match[1]));S=build();story();return}
